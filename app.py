@@ -52,46 +52,46 @@ def chat(req: ChatRequest):
     # Add current message to history
     session_memory["conversation_history"].append({"role": "user", "content": req.message})
     session_memory["messages"] = req.message
-
+    
     try:
-        # 🧠 Determine entry point based on current state
-        entry_node = "extract" if session_memory["state"] == "initial" else "update"
-
-        # 🧠 Invoke LangGraph from appropriate node
-        final_state = compiled.invoke(session_memory, config={"entry_point": entry_node})
-
-        # 🧠 Save updated state back to session
+        # Process the message through the graph
+        final_state = compiled.invoke(session_memory)
+        
+        # Update session with new state
         sessions[req.session_id] = final_state
-
-        # 🎯 Choose the reply based on status
-        if final_state["state"] == "complete":
-            reply = f"✅ Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
-            for i, project in enumerate(final_state['projects'], 1):
-                reply += f"**Project {i}:**\n"
-                reply += f"• Delivery Details: {project.get('delivery', 'N/A')}\n"
-                reply += f"• Accomplishments: {project.get('accomplishments', 'N/A')}\n"
-                reply += f"• Approach/Solution: {project.get('approach', 'N/A')}\n"
-                reply += f"• Improvements: {project.get('improvement', 'N/A')}\n"
-                reply += f"• Timeframe: {project.get('timeframe', 'N/A')}\n\n"
-        else:
-            reply = final_state.get("followup", "Let's continue with the next step.")
-
-        # ➕ Add assistant reply to history
-        final_state["conversation_history"].append({"role": "assistant", "content": reply})
-
+        
+        # # Determine response
+        # if final_state["followup"]:
+        #     reply = final_state["followup"]
+        #     # Add bot response to history
+        #     final_state["conversation_history"].append({"role": "assistant", "content": reply})
+        # else:
+        #     reply = f"Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
+        #     for i, project in enumerate(final_state['projects'], 1):
+        #         reply += f"**Project {i}:**\n"
+        #         reply += f"• Delivery Details: {project.get('delivery', 'N/A')}\n"
+        #         reply += f"• Accomplishments: {project.get('accomplishments', 'N/A')}\n"
+        #         reply += f"• Approach/Solution: {project.get('approach', 'N/A')}\n"
+        #         reply += f"• Improvements: {project.get('improvement', 'N/A')}\n"
+        #         reply += f"• Timeframe: {project.get('timeframe', 'N/A')}\n\n"
+            
+        #     final_state["conversation_history"].append({"role": "assistant", "content": reply})
+        #     final_state["state"] = "complete"
+        
+        # return {
+        #     "reply": reply,
+        #     "projects": final_state["projects"],
+        #     "missing": final_state["missing"],
+        #     "session_state": final_state["state"],
+        #     "total_projects": len(final_state["projects"]),
+        #     "current_project": final_state["current_index"] + 1 if final_state["projects"] else 0
+        # }
         return {
-            "reply": reply,
-            "projects": final_state["projects"],
-            "missing": final_state["missing"],
-            "session_state": final_state["state"],
-            "total_projects": len(final_state["projects"]),
-            "current_project": final_state["current_index"] + 1 if final_state["projects"] else 0
+            "final":final_state
         }
-
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
-
-
 
 @app.get("/session/{session_id}")
 def get_session(session_id: str):
@@ -100,14 +100,15 @@ def get_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     
     session = sessions[session_id]
-    return {
-        "session_id": session_id,
-        "projects": session["projects"],
-        "current_project": session["current_index"] + 1 if session["projects"] else 0,
-        "total_projects": len(session["projects"]),
-        "state": session.get("state", "initial"),
-        "conversation_history": session.get("conversation_history", [])
-    }
+    # return {
+    #     "session_id": session_id,
+    #     "projects": session["projects"],
+    #     "current_project": session["current_index"] + 1 if session["projects"] else 0,
+    #     "total_projects": len(session["projects"]),
+    #     "state": session.get("state", "initial"),
+    #     "conversation_history": session.get("conversation_history", [])
+    # }
+    return session
 
 @app.delete("/session/{session_id}")
 def clear_session(session_id: str):
