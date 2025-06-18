@@ -27,7 +27,7 @@ def generate_self_appraisal_suggestions(responses: list[str]) -> str:
 
 def summarize_appraisals(employee_name: str, appraisals: list[dict]) -> str:
     prompt = f"Summarize past appraisals for {employee_name}. Highlight:\n"
-    prompt += "- Growth trends\n- Repeating strengths/challenges\n- Overall performance tone\n\n"
+    prompt += "- Growth trends\n- Repeating strengths/challenges\n- Overall performance tone\n\n Make it concise and clear.\n\n"
 
     for i, a in enumerate(appraisals):
         prompt += f"\nAppraisal {i + 1}:\n"
@@ -46,6 +46,7 @@ def rate_performance_factors(performance_factors: list[dict]) -> list[dict]:
     prompt = (
         "You are an HR expert AI assistant. Given a list of performance competencies "
         "with strengths and improvement needs, assign a score from 1 to 10 for each. "
+        "Make it brief and concise.\n\n"
         "Also provide a short reason for your score.\n\n"
         "Return in JSON format like:\n"
         "[\n"
