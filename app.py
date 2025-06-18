@@ -25,6 +25,7 @@ sessions: Dict[str, Dict[str, Any]] = {}
 
 class ChatRequest(BaseModel):
     session_id: str
+    role:str
     message: str
 
 def get_or_create_session(session_id: str) -> Dict[str, Any]:
@@ -37,8 +38,9 @@ def get_or_create_session(session_id: str) -> Dict[str, Any]:
             "missing": [],
             "followup": "",
             "conversation_history": [],
-            "state": "initial"  # initial, extracting, filling, complete
-        }
+            "state": "initial",  # initial, extracting, filling, complete
+            "role":"",
+            "intent":""     }
     return sessions[session_id]
 
 @app.post("/chat")

@@ -21,6 +21,8 @@ class State(TypedDict):
     followup: str
     conversation_history: List[dict]
     state: str
+    role:str
+    intent:str
 
 # Initialize graph
 graph = StateGraph(State)
@@ -36,148 +38,39 @@ FIELD_DESCRIPTIONS = {
 }
 
 
-# def is_initial_project_description(state: State) -> bool:
-#     return len(state.get("conversation_history", [])) <= 1 or state.get("state") == "initial"
-
-# def extract_project(state: State) -> State:
-#     user_messages = state["messages"]
-#     if state.get("project") and not is_initial_project_description(state):
-#         return state
-
-#     prompt = f"""
-#     You are helping an employee fill out their self-appraisal form. Extract project details from their description.
-
-#     Required fields:
-#     - delivery: What was delivered/completed
-#     - accomplishments: Key achievements and highlights
-#     - approach: Methods, strategies, or solutions used
-#     - improvement: Areas for improvement or lessons learned
-#     - timeframe: When the project took place
-
-#     Instructions:
-#     1. Extract available information for each field
-#     2. If information is missing or unclear, leave the field empty
-#     3. Return valid JSON only
-
-#     Format:
-#     {{"project": {{"delivery": "...", "accomplishments": "...", "approach": "...", "improvement": "...", "timeframe": "..."}}}}
-
-#     Employee's description:
-#     {user_messages}
-#     """
-
-#     model = genai.GenerativeModel("gemini-2.0-flash")
-#     resp = model.generate_content(prompt)
-
-#     try:
-#         cleaned_json = clean_json_response(resp.text)
-#         parsed = json.loads(cleaned_json)
-#         project = parsed.get("project", {field: "" for field in REQUIRED_FIELDS})
-#         state["project"] = project
-#         state["state"] = "extracting"
-#     except Exception as e:
-#         print(f"Error parsing Gemini response: {e}")
-#         print(f"Raw response: {resp.text}")
-#         state["project"] = {field: "" for field in REQUIRED_FIELDS}
-#         state["state"] = "extracting"
-
-#     return state
-
-# def check_missing_fields(state: State) -> State:
-#     project = state.get("project", {})
-#     missing = []
-#     for field in REQUIRED_FIELDS:
-#         value = (project.get(field) or "").strip()
-#         if not value or value.lower() in ["", "n/a", "none", "not specified"]:
-#             missing.append(field)
-#     state["missing"] = missing
-
-#     if missing:
-#         followup = "Let me help you complete your project details.\n\n"
-#         missing_descriptions = [FIELD_DESCRIPTIONS[field] for field in missing]
-#         if len(missing) == 1:
-#             followup += f"I need more information about: {missing_descriptions[0]}"
-#         else:
-#             followup += "I need more information about the following:\n"
-#             for i, desc in enumerate(missing_descriptions, 1):
-#                 followup += f"{i}. {desc}\n"
-#         followup += "\nPlease provide these details, and I'll help organize them properly."
-#         state["followup"] = followup
-#         state["state"] = "filling"
-#     else:
-#         state["followup"] = ""
-#         state["state"] = "complete"
-#     return state
-
-# def update_project(state: State) -> State:
-#     user_msg = state.get("messages", "")
-#     missing = state.get("missing", [])
-#     current_project = state.get("project", {field: "" for field in REQUIRED_FIELDS})
-
-#     prompt = f"""
-#     An employee is providing information to complete their project details.
-
-#     Current project data: {json.dumps(current_project, indent=2)}
-
-#     Missing fields: {missing}
-#     Field descriptions:
-#     {json.dumps({field: FIELD_DESCRIPTIONS[field] for field in missing}, indent=2)}
-
-#     Employee's response: "{user_msg}"
-
-#     Instructions:
-#     1. Map the employee's response to the appropriate missing fields
-#     2. Keep existing data unchanged
-#     3. Return updated JSON
-#     4. Don’t fill fields with hallucinated content. If info is missing, keep it blank.
-
-#     Format:
-#     {{"delivery": "...", "accomplishments": "...", "approach": "...", "improvement": "...", "timeframe": "..."}}
-#     """
-
-#     model = genai.GenerativeModel("gemini-2.0-flash")
-#     try:
-#         resp = model.generate_content(prompt)
-#         cleaned_json = clean_json_response(resp.text)
-#         updated_data = json.loads(cleaned_json)
-#         for field in REQUIRED_FIELDS:
-#             if updated_data.get(field):
-#                 current_project[field] = updated_data[field]
-#         state["project"] = current_project
-#     except Exception as e:
-#         print(f"Update error: {e}")
-#     return state
-
-# def next_or_end(state: State) -> str:
-#     if state.get("missing"):
-#         return "ask_followup"
-#     return END
-
-# def ask_followup(state: State) -> State:
-    # return state
-
-# Add nodes to graph
-# graph.add_node("extract", extract_project)
-# graph.add_node("check", check_missing_fields)
-# graph.add_node("update", update_project)
-# graph.add_node("ask_followup", ask_followup)
-
-# # Define edges
-# graph.add_edge(START, "extract")
-# graph.add_edge("extract", "check")
-
-# graph.add_conditional_edges(
-#     "check", next_or_end, {"ask_followup": "ask_followup", END: END}
-# )
-
-# graph.add_edge("ask_followup", "update")
-# graph.add_edge("update", "check")
-
 #############
 #############
 #############
 #############
 #############
+def set_relevance(state: State) -> State:
+    user_msg = state.get("messages", "")
+
+    prompt = f"""
+                You are a message classifier for an HR appraisal assistant chatbot and the below message is by an employee who wants to do self appriasal 
+
+                User message:
+                "{user_msg}"
+
+                Classify the intent into ONLY one of these categories:
+                - "general_question"
+                - "prev_summary_query"
+                - "self_appraisal_input"
+            
+
+                Respond with just the category name.
+                """
+
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    try:
+        response = model.generate_content(prompt)
+        intent = response.text.strip().lower()
+        state["intent"]=intent
+    except Exception as e:
+        print("Intent classification failed:", e)
+        state["intent"] = "chit_chat_or_unknown"
+    return state
+
 def clean_json_response(text: str) -> str:
     json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', text)
     if json_match:
@@ -188,7 +81,7 @@ def clean_json_response(text: str) -> str:
     return text
 
 
-def check(state: State) -> State:
+def check_appraisals(state: State) -> State:
     project = state.get("project", {})
     missing = []
 
@@ -288,17 +181,60 @@ def user_followup(state: State) -> State:
     state["state"] = "filling"
     return state
 
-graph.add_node("ext_up",ext_up)
-graph.add_node("check",check)
+def prev_summary_query():
+    pass
+
+def general_question(state: State) -> State:
+    user_msg = state.get("messages", "")
+    
+    prompt = f"""
+            You are an assistant that helps employees:
+            1. Fill out their self-appraisal form
+            2. View or understand their past appraisal summaries
+
+            However, the employee just asked:
+            "{user_msg}"
+
+            Politely remind them of your main purpose and guide them back to providing information related to self-appraisal or past reviews. 
+            If the question is not relevant, kindly redirect them. Be friendly and helpful.
+            """
+
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    response = model.generate_content(prompt)
+
+    state["followup"] = response.text.strip()
+    return state
+
+def check_relevance(state:State)->State:
+    return state["intent"]
+
+graph.add_node("check_relevance",set_relevance)
+graph.add_node("ext_up",ext_up) 
+graph.add_node("check_appraisals",check_appraisals)
 graph.add_node("user_followup",user_followup)
+graph.add_node("prev_summary_query",prev_summary_query)
+graph.add_node("general_question",general_question)
 
 ##edges
-graph.add_edge(START,"check")
+
+graph.add_edge(START,"check_relevance")
+graph.add_conditional_edges("check_relevance",
+                            check_relevance,
+                            {
+                                "self_appraisal_input":"check_appraisals",
+                                "prev_summary_query":"prev_summary_query",
+                                "general_question":"general_question"
+                            })
+
+
+
 graph.add_conditional_edges(
-    "check",isComplete , { "no":"ext_up","yes":END }
+    "check_appraisals",isComplete , { "no":"ext_up","yes":END }
 )
 graph.add_edge("ext_up","user_followup")
 graph.add_edge("user_followup",END)
+graph.add_edge("general_question",END)
+graph.add_edge("prev_summary_query",END)
 
 
 ########
