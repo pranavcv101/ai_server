@@ -52,21 +52,20 @@ def chat(req: ChatRequest):
     # Add current message to history
     session_memory["conversation_history"].append({"role": "user", "content": req.message})
     session_memory["messages"] = req.message
-    
+
     try:
-        # Process the message through the graph
-        final_state = compiled.invoke(session_memory)
-        
-        # Update session with new state
+        # 🧠 Determine entry point based on current state
+        entry_node = "extract" if session_memory["state"] == "initial" else "update"
+
+        # 🧠 Invoke LangGraph from appropriate node
+        final_state = compiled.invoke(session_memory, config={"entry_point": entry_node})
+
+        # 🧠 Save updated state back to session
         sessions[req.session_id] = final_state
-        
-        # Determine response
-        if final_state["followup"]:
-            reply = final_state["followup"]
-            # Add bot response to history
-            final_state["conversation_history"].append({"role": "assistant", "content": reply})
-        else:
-            reply = f"Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
+
+        # 🎯 Choose the reply based on status
+        if final_state["state"] == "complete":
+            reply = f"✅ Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
             for i, project in enumerate(final_state['projects'], 1):
                 reply += f"**Project {i}:**\n"
                 reply += f"• Delivery Details: {project.get('delivery', 'N/A')}\n"
@@ -74,10 +73,12 @@ def chat(req: ChatRequest):
                 reply += f"• Approach/Solution: {project.get('approach', 'N/A')}\n"
                 reply += f"• Improvements: {project.get('improvement', 'N/A')}\n"
                 reply += f"• Timeframe: {project.get('timeframe', 'N/A')}\n\n"
-            
-            final_state["conversation_history"].append({"role": "assistant", "content": reply})
-            final_state["state"] = "complete"
-        
+        else:
+            reply = final_state.get("followup", "Let's continue with the next step.")
+
+        # ➕ Add assistant reply to history
+        final_state["conversation_history"].append({"role": "assistant", "content": reply})
+
         return {
             "reply": reply,
             "projects": final_state["projects"],
@@ -86,9 +87,11 @@ def chat(req: ChatRequest):
             "total_projects": len(final_state["projects"]),
             "current_project": final_state["current_index"] + 1 if final_state["projects"] else 0
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+
+
 
 @app.get("/session/{session_id}")
 def get_session(session_id: str):
