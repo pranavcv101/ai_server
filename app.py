@@ -32,7 +32,7 @@ def get_or_create_session(session_id: str) -> Dict[str, Any]:
     if session_id not in sessions:
         sessions[session_id] = {
             "messages": [],
-            "projects": [],
+            "project": {},
             "current_index": 0,
             "missing": [],
             "followup": "",
