@@ -3,6 +3,7 @@ import json
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict
 import google.generativeai as genai
+import re
 
 # Set your Gemini API key
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
@@ -20,22 +21,36 @@ graph = StateGraph(State)
 
 def extract_fields(state: State):
     user_messages = state["messages"]
-    
-    prompt = f"""Extract the following fields from this project description in JSON format:
-- delivery: What was delivered?
-- accomplishments: What were the key achievements?
-- approach: What methodology or technologies were used?
-- improvement: What could be improved?
-- timeframe: When was this project done?
+  
+    prompt = f"""
+                Extract the details of each project mentioned in the following text. 
+                For each project, return the following fields in JSON format:
+                - delivery: What was delivered?
+                - accomplishments: What were the key achievements?
+                - approach: What methodology or technologies were used?
+                - improvement: What could be improved?
+                - timeframe: When was this project done?
 
-Return ONLY JSON. Message:
-{user_messages}"""
+                If there are multiple projects, return them as a list of JSON objects inside a single top-level key called "projects".
+
+                Important instructions:
+                - Return ONLY a valid JSON object.
+                - Do NOT include any extra commentary or text outside the JSON.
+                - Ensure every value is a string.
+                - Wrap everything inside a single JSON object like: 
+                {{"projects": [{{...}}, {{...}}]}}
+
+                Text:
+                {user_messages}
+                """
+
     
     model = genai.GenerativeModel("gemini-2.0-flash")
     resp = model.generate_content(prompt)
     
+    match = re.search(r'\{[\s\S]*\}', resp.text)
     try:
-        parsed = json.loads(resp.text)
+        parsed = json.loads(match.group())
         # Ensure all expected fields exist in the parsed data
         for field in ["delivery", "accomplishments", "approach", "improvement", "timeframe"]:
             if field not in parsed:
