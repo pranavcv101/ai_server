@@ -30,3 +30,18 @@ class PerformanceFactorRequest(BaseModel):
 
 class PerformanceFactorResponse(BaseModel):
     ratings: List[PerformanceFactorRating]
+
+class PerformanceFactor(BaseModel):
+    competency: str
+    strengths: str
+    improvements: str
+
+class EmployeeAppraisalData(BaseModel):
+    employeeName: str
+    performanceFactors: List[PerformanceFactor]
+
+class HRRecommendationRequest(BaseModel):
+    appraisals: List[EmployeeAppraisalData]
+
+class HRRecommendationResponse(BaseModel):
+    recommendations: str

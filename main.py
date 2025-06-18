@@ -2,13 +2,15 @@
 from fastapi import FastAPI, HTTPException
 from models import AppraisalRequest, AppraisalSummary, AppraisalData
 from gemini import generate_self_appraisal_suggestions, rate_performance_factors, summarize_appraisals
+from models import HRRecommendationRequest, HRRecommendationResponse
+from gemini import generate_hr_recommendations
 import httpx  # for making async HTTP requests
 from models import PerformanceFactorRequest, PerformanceFactorResponse, PerformanceFactorRating
 
 
 app = FastAPI()
 
-BACKEND_URL = "http://localhost:3000/appraisals"
+BACKEND_URL_PAST_APPRAISAL_BY_ID = "http://localhost:3000/appraisal/past-appraisals"
 
 @app.post("/ai/self-appraisal", response_model=AppraisalSummary)
 async def self_appraisal_summary(request: AppraisalRequest):
@@ -29,17 +31,21 @@ async def summarize_past_appraisals(employee_id: int):
     """
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BACKEND_URL}/{employee_id}")
+            response = await client.get(f"{BACKEND_URL_PAST_APPRAISAL_BY_ID}/{employee_id}")
         
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="Failed to fetch appraisal data from backend")
 
-        appraisal_data = response.json()
-        appraisals = [appraisal_data]  # format as list in case of future expansion
-        employee_name = appraisal_data.get("employee", {}).get("name", "The employee")
+        
+        appraisal_data_list = response.json()
 
-        summary = summarize_appraisals(employee_name, appraisals)
+        if not appraisal_data_list:
+            raise HTTPException(status_code=404, detail="No appraisals found for this employee")
+
+        employee_name = appraisal_data_list[0].get("employee", {}).get("name", "The employee")
+        summary = summarize_appraisals(employee_name, appraisal_data_list)
         return AppraisalSummary(summary=summary)
+
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI summarization failed: {str(e)}")
@@ -59,3 +65,13 @@ async def score_performance_factors(request: PerformanceFactorRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI scoring failed: {str(e)}")
+    
+
+@app.post("/ai/hr-recommendations", response_model=HRRecommendationResponse)
+async def hr_recommendations(request: HRRecommendationRequest):
+    try:
+        appraisals = [a.dict() for a in request.appraisals]
+        recommendations = generate_hr_recommendations(appraisals)
+        return HRRecommendationResponse(recommendations=recommendations)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI recommendation generation failed: {str(e)}")

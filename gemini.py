@@ -67,3 +67,23 @@ def rate_performance_factors(performance_factors: list[dict]) -> list[dict]:
     except Exception as e:
         raise ValueError(f"AI response parsing failed: {e}\nRaw response: {response.text}")
 
+def generate_hr_recommendations(appraisals: list[dict]) -> str:
+    prompt = (
+        "You are an AI HR assistant analyzing appraisal feedback from employees over time.\n"
+        "Based on strengths and improvement areas, suggest:\n"
+        "- Workshops\n"
+        "- Upskilling sessions\n"
+        "- Coaching topics\n"
+        "- General HR interventions\n\n"
+        "Here is the input appraisal data:\n"
+    )
+
+    for emp in appraisals:
+        prompt += f"\nEmployee: {emp['employeeName']}\n"
+        for pf in emp['performanceFactors']:
+            prompt += f"  Competency: {pf['competency']}\n"
+            prompt += f"    Strengths: {pf['strengths']}\n"
+            prompt += f"    Improvement Needs: {pf['improvements']}\n"
+
+    response = model.generate_content(prompt)
+    return response.text.strip()
