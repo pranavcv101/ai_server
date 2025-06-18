@@ -208,7 +208,7 @@ def general_question(state: State) -> State:
 def check_relevance(state:State)->State:
     return state["intent"]
 
-graph.add_node("check_relevance",set_relevance)
+graph.add_node("set_relevance",set_relevance)
 graph.add_node("ext_up",ext_up) 
 graph.add_node("check_appraisals",check_appraisals)
 graph.add_node("user_followup",user_followup)
@@ -217,8 +217,8 @@ graph.add_node("general_question",general_question)
 
 ##edges
 
-graph.add_edge(START,"check_relevance")
-graph.add_conditional_edges("check_relevance",
+graph.add_edge(START,"set_relevance")
+graph.add_conditional_edges("set_relevance",
                             check_relevance,
                             {
                                 "self_appraisal_input":"check_appraisals",

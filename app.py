@@ -38,7 +38,7 @@ def get_or_create_session(session_id: str) -> Dict[str, Any]:
             "missing": [],
             "followup": "",
             "conversation_history": [],
-            "state": "initial",  # initial, extracting, filling, complete
+            "state": "",  # initial, extracting, filling, complete
             "role":"",
             "intent":""     }
     return sessions[session_id]
@@ -54,6 +54,7 @@ def chat(req: ChatRequest):
     # Add current message to history
     session_memory["conversation_history"].append({"role": "user", "content": req.message})
     session_memory["messages"] = req.message
+    session_memory["state"]="initial"
     
     try:
         # Process the message through the graph
@@ -88,6 +89,9 @@ def chat(req: ChatRequest):
         #     "total_projects": len(final_state["projects"]),
         #     "current_project": final_state["current_index"] + 1 if final_state["projects"] else 0
         # }
+        if final_state["state"] == "complete":
+            del sessions[req.session_id]
+            
         return {
             "final":final_state
         }
