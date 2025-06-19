@@ -1,12 +1,14 @@
 # app/main.py
+from typing import Dict, Any
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from models import AppraisalRequest, AppraisalSummary, AppraisalData
 from gemini import generate_self_appraisal_suggestions, rate_performance_factors, summarize_appraisals
 from models import HRRecommendationRequest, HRRecommendationResponse
 from gemini import generate_hr_recommendations
 import httpx  # for making async HTTP requests
 from models import PerformanceFactorRequest, PerformanceFactorResponse, PerformanceFactorRating
-
+from chatbot import compiled
 
 app = FastAPI()
 
@@ -14,7 +16,89 @@ BACKEND_URL_PAST_APPRAISAL_BY_ID = "http://localhost:3000/appraisal/past-apprais
 BACKEND_URL_SELF_APPRAISAL_BY_ID = "http://localhost:3000/self-appraisal"
 BACKEND_URL_APPRAISALS = "http://localhost:3000/appraisal"
 
+sessions: Dict[str, Dict[str, Any]] = {}
 
+
+class ChatRequest(BaseModel):
+    session_id: str
+    role:str
+    message: str
+
+def get_or_create_session(session_id: str) -> Dict[str, Any]:
+    """Get existing session or create a new one"""
+    if session_id not in sessions:
+        sessions[session_id] = {
+            "session_id": session_id,
+            "messages": [],
+            "project": {},
+            "current_index": 0,
+            "missing": [],
+            "followup": "",
+            "conversation_history": [],
+            "state": "",  # initial, extracting, filling, complete
+            "role":"",
+            "intent":""     }
+    return sessions[session_id]
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    
+    # Get or create session
+    session_memory = get_or_create_session(req.session_id)
+    
+    # Add current message to history
+    session_memory["conversation_history"].append({"role": "user", "content": req.message})
+    session_memory["messages"] = req.message
+    session_memory["state"]="initial"
+    session_memory["role"]=req.role
+    
+    try:
+        # Process the message through the graph
+        # final_state = await compiled.invoke_async(session_memory)
+        final_state = compiled.invoke(session_memory)
+
+        
+        # Update session with new state
+        sessions[req.session_id] = final_state
+        
+        # # Determine response
+        # if final_state["followup"]:
+        #     reply = final_state["followup"]
+        #     # Add bot response to history
+        #     final_state["conversation_history"].append({"role": "assistant", "content": reply})
+        # else:
+        #     reply = f"Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
+        #     for i, project in enumerate(final_state['projects'], 1):
+        #         reply += f"**Project {i}:**\n"
+        #         reply += f"• Delivery Details: {project.get('delivery', 'N/A')}\n"
+        #         reply += f"• Accomplishments: {project.get('accomplishments', 'N/A')}\n"
+        #         reply += f"• Approach/Solution: {project.get('approach', 'N/A')}\n"
+        #         reply += f"• Improvements: {project.get('improvement', 'N/A')}\n"
+        #         reply += f"• Timeframe: {project.get('timeframe', 'N/A')}\n\n"
+            
+        #     final_state["conversation_history"].append({"role": "assistant", "content": reply})
+        #     final_state["state"] = "complete"
+        
+        # return {
+        #     "reply": reply,
+        #     "projects": final_state["projects"],
+        #     "missing": final_state["missing"],
+        #     "session_state": final_state["state"],
+        #     "total_projects": len(final_state["projects"]),
+        #     "current_project": final_state["current_index"] + 1 if final_state["projects"] else 0
+        # }
+        if final_state["state"] == "complete":
+            del sessions[req.session_id]
+            
+        return {
+            "final":final_state
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
 @app.post("/ai/self-appraisal", response_model=AppraisalSummary)
 async def self_appraisal_summary(request: AppraisalRequest):
@@ -92,7 +176,7 @@ async def summarize_self_appraisal(id: int):
 async def score_performance_factors(request: PerformanceFactorRequest):
     try:
         # Convert request to list of dicts for Gemini
-        input_data = [factor.dict() for factor in request.factors]
+        input_data = [factor.model_dump() for factor in request.factors]
         scored = rate_performance_factors(input_data)
 
         # Validate and return
