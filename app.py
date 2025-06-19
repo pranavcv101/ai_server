@@ -32,6 +32,7 @@ def get_or_create_session(session_id: str) -> Dict[str, Any]:
     """Get existing session or create a new one"""
     if session_id not in sessions:
         sessions[session_id] = {
+            "session_id": session_id,
             "messages": [],
             "project": {},
             "current_index": 0,
@@ -59,7 +60,9 @@ def chat(req: ChatRequest):
     
     try:
         # Process the message through the graph
+        # final_state = await compiled.invoke_async(session_memory)
         final_state = compiled.invoke(session_memory)
+
         
         # Update session with new state
         sessions[req.session_id] = final_state

@@ -4,6 +4,7 @@ from typing import TypedDict, List
 import google.generativeai as genai
 import re
 
+
 # Set your Gemini API key
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
 model = genai.GenerativeModel("gemini-2.0-flash")
@@ -16,6 +17,7 @@ class Project(TypedDict):
     timeframe: str
 
 class State(TypedDict):
+    session_id: str
     messages: str
     project: Project
     missing: List[str]
@@ -27,6 +29,8 @@ class State(TypedDict):
 
 # Initialize graph
 graph = StateGraph(State)
+
+
 
 # Helper: Required fields
 REQUIRED_FIELDS = ["delivery", "accomplishments", "approach", "improvement", "timeframe"]
@@ -85,7 +89,7 @@ def set_relevance(state: State) -> State:
         Respond with just the category name.
         """
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+
     try:
         response = model.generate_content(prompt)
         intent = response.text.strip().lower()
@@ -192,7 +196,7 @@ def user_followup(state: State) -> State:
         state["state"] = "complete"
         return state
 
-    first_missing = missing[0]
+    first_missing = missing[0] 
 
     # Use a smaller history slice for brevity
     history_text = "\n".join([
@@ -231,11 +235,6 @@ def user_followup(state: State) -> State:
     state["state"] = "filling"
     return state
 
-
-
-def prev_summary_query():
-    pass
-
 def general_question(state: State) -> State:
     user_msg = state.get("messages", "")
     role = state.get("role", "").strip().lower()
@@ -266,21 +265,54 @@ def general_question(state: State) -> State:
             Keep the tone professional and helpful.
             """
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    
     response = model.generate_content(prompt)
 
     state["followup"] = response.text.strip()
     return state
 
-def check_relevance(state:State)->State:
+def check_relevance(state:State)->str:
     return state["intent"]
 
-def check_role(state: State) -> State:
+def check_role(state: State) -> str:
     return state["role"]
 
 def set_role(state: State) -> State:
     return state
 
+# def prev_summary_query(state:State)->State:
+#     employee_id = ""
+#     if state["role"] == "employee":
+#         employee_id = state.get("session_id", "")
+#     else:
+#         #for HR or Lead we need to extract employee_id from the message using llm because the message may contain different things
+#         user_msg = state.get("messages", "")
+#         # Assuming the message contains something like "i need the past appraisal for employee_id: 123"
+#         #use llm to return the employee_id
+#         prompt = f"""
+#         You are an AI assistant that extracts employee IDs from messages.   
+#         The user just said:
+#         "{user_msg}"
+#         extract the employee ID from this message.
+#         If the message does not contain an employee ID, return an empty string.
+#         """
+#         model = genai.GenerativeModel("gemini-2.0-flash")
+#         try:
+#             response = model.generate_content(prompt)
+#             employee_id = response.text.strip()
+#         except Exception as e:
+#             print("Error extracting employee ID:", e)
+#             employee_id = ""    
+        
+        
+#     response = summarize_past_appraisals(employee_id)
+#     state["followup"] = response
+#     state["state"] = "complete"
+#     return state
+    
+
+def prev_summary_query(state: State) -> State:
+    pass
 
 graph.add_node("check_role",set_role)
 graph.add_node("HR_query",set_relevance)
