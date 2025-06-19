@@ -6,6 +6,7 @@ import re
 
 # Set your Gemini API key
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 class Project(TypedDict):
     delivery: str
@@ -45,28 +46,44 @@ FIELD_DESCRIPTIONS = {
 #############
 def set_relevance(state: State) -> State:
     user_msg = state.get("messages", "")
-
+    role = state.get("role", "").strip().lower()
     history = state.get("conversation_history", [])
 
     history_text = "\n".join([f"{item['role'].capitalize()}: {item['content']}" for item in history[-5:]])  # use last 5 turns
 
-    prompt = f"""
-                You are a message classifier for an HR appraisal assistant chatbot and the below message is by an employee who wants to do self appriasal 
+    if role in ["hr", "lead"]:
+        prompt = f"""
+        You are a message classifier for an HR appraisal assistant chatbot. The user is an {role.upper()}.
 
-                The employee has been discussing the following:
-                {history_text}
-                
-                User message:
-                "{user_msg}"
+        The conversation so far:
+        {history_text}
 
-                Classify the intent into ONLY one of these categories:
-                - "general_question"
-                - "prev_summary_query"
-                - "self_appraisal_input"
-            
+        User message:
+        "{user_msg}"
 
-                Respond with just the category name.
-                """
+        Classify the intent into ONLY one of these:
+        - "prev_summary_query"
+        - "general_question"
+
+        Respond with just the category name.
+        """
+    else:  # For employee
+        prompt = f"""
+        You are a message classifier for an HR appraisal assistant chatbot. The user is an EMPLOYEE.
+
+        The conversation so far:
+        {history_text}
+
+        User message:
+        "{user_msg}"
+
+        Classify the intent into ONLY one of these:
+        - "self_appraisal_input"
+        - "prev_summary_query"
+        - "general_question"
+
+        Respond with just the category name.
+        """
 
     model = genai.GenerativeModel("gemini-2.0-flash")
     try:
@@ -221,8 +238,9 @@ def prev_summary_query():
 
 def general_question(state: State) -> State:
     user_msg = state.get("messages", "")
-    
-    prompt = f"""
+    role = state.get("role", "").strip().lower()
+    if role == "employee":
+            prompt = f"""
             You are an assistant that helps employees:
             1. Fill out their self-appraisal form
             2. View or understand their past appraisal summaries
@@ -232,6 +250,20 @@ def general_question(state: State) -> State:
 
             Politely remind them of your main purpose and guide them back to providing information related to self-appraisal or past reviews. 
             If the question is not relevant, kindly redirect them. Be friendly and helpful.
+            """
+    elif role in ["hr", "lead"]:
+            prompt = f"""
+            You are an assistant that helps HRs and Team Leads:
+            - Review past appraisal summaries of employees
+            - Provide performance insights and suggestions for evaluations
+
+            However, the user just asked:
+            "{user_msg}"
+
+            If their question is unrelated to performance appraisal analysis or team evaluation, gently remind them of your purpose and suggest questions like:
+            - "Show me John's last appraisal summary"
+            - "What are the improvement areas for Team A?"
+            Keep the tone professional and helpful.
             """
 
     model = genai.GenerativeModel("gemini-2.0-flash")
@@ -243,20 +275,53 @@ def general_question(state: State) -> State:
 def check_relevance(state:State)->State:
     return state["intent"]
 
+def check_role(state: State) -> State:
+    return state["role"]
+
+def set_role(state: State) -> State:
+    return state
+
+
+graph.add_node("check_role",set_role)
+graph.add_node("HR_query",set_relevance)
+graph.add_node("Lead_query",set_relevance)
+
+
+####################
 graph.add_node("set_relevance",set_relevance)
 graph.add_node("ext_up",ext_up) 
 graph.add_node("check_appraisals",check_appraisals)
 graph.add_node("user_followup",user_followup)
 graph.add_node("prev_summary_query",prev_summary_query)
 graph.add_node("general_question",general_question)
+#####################
 
 ##edges
-
-graph.add_edge(START,"set_relevance")
+graph.add_edge(START, "check_role")
+graph.add_conditional_edges("check_role",
+                            check_role,
+                            {
+                                "hr":"HR_query",
+                                "lead":"Lead_query",
+                                "employee":"set_relevance"
+                            })
+graph.add_conditional_edges("HR_query",
+                            check_relevance,
+                            {
+                                "prev_summary_query":"prev_summary_query",
+                                "general_question":"general_question"
+                            })
+graph.add_conditional_edges("Lead_query",
+                            check_relevance,
+                            {   
+                                "prev_summary_query":"prev_summary_query",
+                                "general_question":"general_question"
+                            })
+##############################
+# graph.add_edge(START,"set_relevance")
 graph.add_conditional_edges("set_relevance",
                             check_relevance,
                             {
-                                "self_appraisal_input":"check_appraisals",
                                 "prev_summary_query":"prev_summary_query",
                                 "general_question":"general_question"
                             })

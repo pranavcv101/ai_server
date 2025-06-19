@@ -55,6 +55,7 @@ def chat(req: ChatRequest):
     session_memory["conversation_history"].append({"role": "user", "content": req.message})
     session_memory["messages"] = req.message
     session_memory["state"]="initial"
+    session_memory["role"]=req.role
     
     try:
         # Process the message through the graph
