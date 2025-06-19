@@ -3,9 +3,9 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, List
 import google.generativeai as genai
 import re
-import requests # <--- 1. IMPORT THE REQUESTS LIBRARY
+import requests
 
-# Set your Gemini API key
+
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
 model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -38,38 +38,15 @@ FIELD_DESCRIPTIONS = {
     "timeframe": "Time frame of the project/Job - When did this project take place?"
 }
 
-# =================================================================
-# MODIFIED: THIS FUNCTION NOW MAKES A REAL API CALL
-# =================================================================
 def fetch_data_from_server(employee_id: str) -> dict:
-    """
-    Fetches past appraisal data from a real external server.
-
-    This function makes a GET request to the specified API endpoint, passing
-    the employee ID as a query parameter. It includes robust error handling.
-
-    Args:
-        employee_id (str): The ID of the employee to look up.
-
-    Returns:
-        dict: A dictionary with success status and data, or an error message.
-    """
-    # 2. DEFINE THE API ENDPOINT
     API_URL = "http://localhost:3000/appraisal/past-appraisals"
     params = {"employee_id": employee_id}
 
     print(f"--- REAL API CALL: Fetching data for '{employee_id}' from {API_URL} ---")
 
     try:
-        # 3. MAKE THE HTTP GET REQUEST
-        # We add a timeout as a best practice to avoid hanging indefinitely.
-        response = requests.get(API_URL, params=params, timeout=10)
-
-        # 4. CHECK FOR HTTP ERRORS (e.g., 404 Not Found, 500 Internal Server Error)
+        response = requests.get(f"{API_URL}/{employee_id}", timeout=10)
         response.raise_for_status()
-
-        # 5. IF SUCCESSFUL, RETURN THE JSON DATA
-        # The structure {"success": True, "data": ...} is maintained.
         return {"success": True, "data": response.json()}
 
     except requests.exceptions.HTTPError as http_err:
@@ -93,11 +70,6 @@ def fetch_data_from_server(employee_id: str) -> dict:
         print(error_message)
         return {"success": False, "error": "The server returned data in an unexpected format."}
 
-
-# =================================================================
-# ALL OTHER NODES AND GRAPH DEFINITIONS REMAIN UNCHANGED
-# (The rest of your code from the previous step goes here...)
-# =================================================================
 
 def set_relevance(state: State) -> State:
     user_msg = state.get("messages", "")
@@ -246,6 +218,8 @@ def user_followup(state: State) -> State:
 def general_question(state: State) -> State:
     user_msg = state.get("messages", "")
     role = state.get("role", "").strip().lower()
+    history = state.get("conversation_history", [])
+    history_text = "\n".join([f"{item['role'].capitalize()}: {item['content']}" for item in history])
     if role == "employee":
         prompt = f"""
         You are an assistant that helps employees:
@@ -253,13 +227,16 @@ def general_question(state: State) -> State:
         2. View or understand their past appraisal summaries
 
         The employee just asked: "{user_msg}"
-
+        The previous conversation history is: {history_text} 
+        You are allowed to take relevant information from the conversation history to answer their question.
         Politely state your purpose and gently guide them back to one of your functions. Be friendly and helpful.
         """
     else:
         prompt = f"""
         You are an assistant that helps HR and Team Leads review past appraisal summaries of their employees.
         The user just asked: "{user_msg}"
+        The previous conversation history is: {history_text} 
+        You are allowed to take relevant information from the conversation history to answer their question.
         If their question is unrelated to performance reviews, gently remind them of your purpose.
         Suggest valid questions like "Show me John's last appraisal summary" or "Pull up the Q2 review for E7890".
         Keep the tone professional and helpful.
@@ -326,11 +303,8 @@ def isComplete(state: State) -> str:
         return "yes"
     return "no"
 
-def check_role(state: State) -> str:
-    return state["role"]
+    
 
-
-graph.add_node("set_role", set_role)
 graph.add_node("set_relevance", set_relevance)
 graph.add_node("check_appraisals", check_appraisals)
 graph.add_node("ext_up", ext_up)
@@ -340,8 +314,7 @@ graph.add_node("general_question", general_question)
 
 
 
-graph.add_edge(START, "set_role")
-graph.add_conditional_edges("set_role", check_role, {"hr": "set_relevance", "lead": "set_relevance", "employee": "set_relevance"})
+graph.add_edge(START, "set_relevance")
 graph.add_conditional_edges("set_relevance", check_relevance, {"self_appraisal_input": "ext_up", "prev_summary_query": "prev_summary_query", "general_question": "general_question"})
 graph.add_conditional_edges("ext_up", isComplete, {"no": "user_followup", "yes": END})
 graph.add_edge("user_followup", END)
@@ -349,6 +322,3 @@ graph.add_edge("general_question", END)
 graph.add_edge("prev_summary_query", END)
 
 compiled = graph.compile()
-
-# Example usage would be the same as before.
-# Just make sure your local server is running when you execute the script.
