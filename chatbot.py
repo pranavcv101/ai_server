@@ -4,7 +4,7 @@ from typing import TypedDict, List
 import google.generativeai as genai
 import re
 import requests
-
+from prompts import get_api_routing_prompt
 
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
 model = genai.GenerativeModel("gemini-2.5-flash")
@@ -70,43 +70,46 @@ def fetch_data_from_server(employee_id: str) -> dict:
         print(error_message)
         return {"success": False, "error": "The server returned data in an unexpected format."}
 
-
 def set_relevance(state: State) -> State:
     user_msg = state.get("messages", "")
     role = state.get("role", "").strip().lower()
     history = state.get("conversation_history", [])
-
     history_text = "\n".join([f"{item['role'].capitalize()}: {item['content']}" for item in history[-5:]])
 
     if role in ["hr", "lead"]:
         prompt = f"""
-        You are a message classifier for an HR appraisal assistant chatbot. The user is an {role.upper()}.
+        You are a message classifier for an HR appraisal assistant. The user is a {role.upper()}.
         The conversation so far:
         {history_text}
         User message: "{user_msg}"
-        Classify the intent into ONLY one of these:
+
+        Classify the user's intent into ONLY one of these categories:
         - "prev_summary_query"
         - "general_question"
+
         Respond with just the category name.
         """
+        allowed_intents = ["prev_summary_query", "database_query", "general_question"]
     else:  # For employee
         prompt = f"""
-        You are a message classifier for an HR appraisal assistant chatbot. The user is an EMPLOYEE.
+        You are a message classifier for an HR appraisal assistant. The user is an EMPLOYEE.
         The conversation so far:
         {history_text}
         User message: "{user_msg}"
+
         Classify the intent into ONLY one of these:
         - "self_appraisal_input"
         - "prev_summary_query"
         - "general_question"
         Respond with just the category name.
         """
+        allowed_intents = ["self_appraisal_input", "prev_summary_query", "general_question"]
 
     try:
         response = model.generate_content(prompt)
         intent = response.text.strip().lower()
-        allowed_intents = ["self_appraisal_input", "prev_summary_query", "general_question"]
         if intent not in allowed_intents:
+            # If the LLM returns something unexpected, default to a safe option.
             intent = "general_question"
         state["intent"] = intent
     except Exception as e:
@@ -254,7 +257,7 @@ def prev_summary_query(state: State) -> State:
     if role == "employee":
         employee_id_to_query = state.get("session_id", "")
     elif role in ["hr", "lead"]:
-        prompt = f"From the message: '{user_msg}', extract the employee's name or ID (e.g., 'John Doe', 'E7890'). If no specific employee is mentioned, respond with NONE."
+        prompt = f"From the message: '{user_msg}', extract the ID (e.g., 1 , 2 , 8632 etc). If no specific employee is mentioned, respond with NONE."
         try:
             response = model.generate_content(prompt)
             extracted_id = response.text.strip()
@@ -266,7 +269,7 @@ def prev_summary_query(state: State) -> State:
             return state
 
     if not employee_id_to_query:
-        state["followup"] = "I'm sorry, I need to know which employee's summary you'd like to see. Please specify their name or ID."
+        state["followup"] = "I'm sorry, I need to know which employee's summary you'd like to see. Please specify their ID."
         return state
 
     api_response = fetch_data_from_server(employee_id_to_query)
@@ -291,10 +294,6 @@ def prev_summary_query(state: State) -> State:
     state["state"] = "complete"
     return state
 
-
-def set_role(state: State) -> State:
-    return state
-
 def check_relevance(state: State) -> str:
     return state["intent"]
 
@@ -303,22 +302,45 @@ def isComplete(state: State) -> str:
         return "yes"
     return "no"
 
+def handle_database_query(state: State) -> State:
+    user_msg = state.get("messages", "")
+    prompt = get_api_routing_prompt(user_query=user_msg)
+    try:
+        response = model.generate_content(prompt)
+        api_response = json.loads(clean_json_response(response.text))
+        state["followup"] = f"Executing API call: {api_response['api_name']} with parameters {api_response['parameters']}"
+    except Exception as e:
+        print("Error handling database query:", e)
+        state["followup"] = "I had trouble processing your request. Please try rephrasing your question."
+
+def completed_appraisal(state: State) -> State:
+    if len(state.get("missing", [])) == 0:
+        state["followup"] = "Great! All projects have been captured successfully. Here's your complete self-appraisal data:\n\n"
+        for field in REQUIRED_FIELDS:
+            value = state["project"].get(field, "N/A")
+            state["followup"] += f"**{FIELD_DESCRIPTIONS[field]}**: {value}\n"
+        state["state"] = "complete"
+    return state
     
 
 graph.add_node("set_relevance", set_relevance)
 graph.add_node("check_appraisals", check_appraisals)
 graph.add_node("ext_up", ext_up)
 graph.add_node("user_followup", user_followup)
+graph.add_node("completed_appraisal", completed_appraisal)
 graph.add_node("prev_summary_query", prev_summary_query)
 graph.add_node("general_question", general_question)
+graph.add_node("database_query", handle_database_query)
 
 
 
 graph.add_edge(START, "set_relevance")
 graph.add_conditional_edges("set_relevance", check_relevance, {"self_appraisal_input": "ext_up", "prev_summary_query": "prev_summary_query", "general_question": "general_question"})
-graph.add_conditional_edges("ext_up", isComplete, {"no": "user_followup", "yes": END})
-graph.add_edge("user_followup", END)
+graph.add_conditional_edges("ext_up", isComplete, {"no": "user_followup", "yes": "completed_appraisal"})
+graph.add_edge("user_followup","check_appraisals")
+graph.add_edge("database_query", END)
 graph.add_edge("general_question", END)
 graph.add_edge("prev_summary_query", END)
+graph.add_edge("completed_appraisal", END)
 
 compiled = graph.compile()
