@@ -46,9 +46,16 @@ FIELD_DESCRIPTIONS = {
 def set_relevance(state: State) -> State:
     user_msg = state.get("messages", "")
 
+    history = state.get("conversation_history", [])
+
+    history_text = "\n".join([f"{item['role'].capitalize()}: {item['content']}" for item in history[-5:]])  # use last 5 turns
+
     prompt = f"""
                 You are a message classifier for an HR appraisal assistant chatbot and the below message is by an employee who wants to do self appriasal 
 
+                The employee has been discussing the following:
+                {history_text}
+                
                 User message:
                 "{user_msg}"
 
@@ -123,6 +130,7 @@ def ext_up(state: State) -> State:
     Based on this, try to fill in the missing fields only. 
     - Keep other existing fields unchanged.
     - If you can't extract clear info for a field, leave it empty.
+    -If the employee gives additional information about feilds which are already filled , try to include the newly gained information without losing the previous
 
     Return valid JSON in this format:
     {{
@@ -159,27 +167,54 @@ def ext_up(state: State) -> State:
 
 def user_followup(state: State) -> State:
     missing = state.get("missing", [])
+    project = state.get("project", {})
+    history = state.get("conversation_history", [])
 
     if not missing:
         state["followup"] = ""
         state["state"] = "complete"
         return state
 
-    followup = "Let me help you complete your project details.\n\n"
+    first_missing = missing[0]
 
-    missing_descriptions = [FIELD_DESCRIPTIONS[field] for field in missing]
-    if len(missing) == 1:
-        followup += f"I need more information about: {missing_descriptions[0]}"
-    else:
-        followup += "I need more information about the following:\n"
-        for i, desc in enumerate(missing_descriptions, 1):
-            followup += f"{i}. {desc}\n"
+    # Use a smaller history slice for brevity
+    history_text = "\n".join([
+        f"{item['role'].capitalize()}: {item['content']}"
+        for item in history[-3:]
+    ])
 
-    followup += "\nPlease provide these details, and I'll help organize them properly."
+    prompt = f"""
+    You are helping an employee complete their self-appraisal form.
 
-    state["followup"] = followup
+    The employee has been discussing the following:
+    {history_text}
+
+    The current project details are:
+    {json.dumps(project, indent=2)}
+
+    One of the missing feild is "{first_missing}"
+
+    Description of that field:
+    "{FIELD_DESCRIPTIONS[first_missing]}"
+
+    Based on the above, generate a SHORT and FRIENDLY follow-up message asking  for this one missing detail.
+    Also consider the previos conversation so that you know the context
+    Keep it simple and clear.
+    """
+
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    try:
+        response = model.generate_content(prompt)
+        followup_message = response.text.strip()
+    except Exception as e:
+        print("Error generating follow-up message:", e)
+        followup_message = f"Could you please let me know: {FIELD_DESCRIPTIONS[first_missing]}"
+
+    state["followup"] = followup_message
     state["state"] = "filling"
     return state
+
+
 
 def prev_summary_query():
     pass
@@ -225,8 +260,6 @@ graph.add_conditional_edges("set_relevance",
                                 "prev_summary_query":"prev_summary_query",
                                 "general_question":"general_question"
                             })
-
-
 
 graph.add_conditional_edges(
     "check_appraisals",isComplete , { "no":"ext_up","yes":END }
