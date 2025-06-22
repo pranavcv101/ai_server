@@ -1,34 +1,75 @@
-# app/main.py
-from fastapi import FastAPI, HTTPException
-from models import AppraisalRequest, AppraisalSummary, AppraisalData
-from gemini import generate_self_appraisal_suggestions, rate_performance_factors, summarize_appraisals
-from models import HRRecommendationRequest, HRRecommendationResponse
-from gemini import generate_hr_recommendations
-import httpx  # for making async HTTP requests
+import requests
+import json
+from typing import Dict, Any
 
-
-
-BACKEND_URL_PAST_APPRAISAL_BY_ID = "http://localhost:3000/appraisal/past-appraisals"
-BACKEND_URL_SELF_APPRAISAL_BY_ID = "http://localhost:3000/self-appraisal"
-BACKEND_URL_APPRAISALS = "http://localhost:3000/appraisal"
-
-
-async def summarize_past_appraisals(employee_id: int):
+def fetch_all_appraisals() -> Dict[str, Any]:
+    """Fetch all appraisal data from the server"""
+    API_URL = "http://localhost:3000/appraisal"
+    print(f"--- REAL API CALL: Fetching all appraisals from {API_URL} ---")
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BACKEND_URL_PAST_APPRAISAL_BY_ID}/{employee_id}")
-        
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to fetch appraisal data from backend")
+        response = requests.get(API_URL, timeout=10)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTP error occurred: {http_err}"
+        print(error_message)
+        if http_err.response.status_code == 404:
+            return {"success": False, "error": "No appraisals found on the server."}
+        else:
+            return {"success": False, "error": f"A server error occurred (Status code: {http_err.response.status_code})."}
+    except requests.exceptions.RequestException as req_err:
+        error_message = f"A network error occurred: {req_err}"
+        print(error_message)
+        return {"success": False, "error": "Could not connect to the appraisal server. Please ensure the server is running and accessible."}
+    except json.JSONDecodeError:
+        error_message = "Failed to parse the server's response. It was not valid JSON."
+        print(error_message)
+        return {"success": False, "error": "The server returned data in an unexpected format."}
 
-        appraisal_data_list = response.json()
+def fetch_past_appraisals_by_employee(employee_id: str) -> Dict[str, Any]:
+    """Fetch past appraisals for a specific employee"""
+    API_URL = "http://localhost:3000/appraisal/past-appraisals"
+    print(f"--- REAL API CALL: Fetching past appraisals for employee '{employee_id}' from {API_URL} ---")
+    try:
+        response = requests.get(f"{API_URL}/{employee_id}", timeout=10)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTP error occurred: {http_err}"
+        print(error_message)
+        if http_err.response.status_code == 404:
+            return {"success": False, "error": "Employee not found on the server."}
+        else:
+            return {"success": False, "error": f"A server error occurred (Status code: {http_err.response.status_code})."}
+    except requests.exceptions.RequestException as req_err:
+        error_message = f"A network error occurred: {req_err}"
+        print(error_message)
+        return {"success": False, "error": "Could not connect to the appraisal server. Please ensure the server is running and accessible."}
+    except json.JSONDecodeError:
+        error_message = "Failed to parse the server's response. It was not valid JSON."
+        print(error_message)
+        return {"success": False, "error": "The server returned data in an unexpected format."}
 
-        if not appraisal_data_list:
-            raise HTTPException(status_code=404, detail="No appraisals found for this employee")
-
-        employee_name = appraisal_data_list[0].get("employee", {}).get("name", "The employee")
-        summary = summarize_appraisals(employee_name, appraisal_data_list)
-        return AppraisalSummary(summary=summary)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI summarization failed: {str(e)}")
+def fetch_self_appraisal_by_employee(employee_id: str) -> Dict[str, Any]:
+    """Fetch self-appraisal data for a specific employee"""
+    API_URL = "http://localhost:3000/self-appraisal"
+    print(f"--- REAL API CALL: Fetching self-appraisal for employee '{employee_id}' from {API_URL} ---")
+    try:
+        response = requests.get(f"{API_URL}/{employee_id}", timeout=10)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTP error occurred: {http_err}"
+        print(error_message)
+        if http_err.response.status_code == 404:
+            return {"success": False, "error": "Self-appraisal not found for this employee."}
+        else:
+            return {"success": False, "error": f"A server error occurred (Status code: {http_err.response.status_code})."}
+    except requests.exceptions.RequestException as req_err:
+        error_message = f"A network error occurred: {req_err}"
+        print(error_message)
+        return {"success": False, "error": "Could not connect to the appraisal server. Please ensure the server is running and accessible."}
+    except json.JSONDecodeError:
+        error_message = "Failed to parse the server's response. It was not valid JSON."
+        print(error_message)
+        return {"success": False, "error": "The server returned data in an unexpected format."}
