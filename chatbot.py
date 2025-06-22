@@ -1,9 +1,12 @@
 import json
+import httpx
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, List
 import google.generativeai as genai
 import re
-import requests # <--- 1. IMPORT THE REQUESTS LIBRARY
+import requests
+
+from gemini import generate_hr_recommendations 
 
 # Set your Gemini API key
 genai.configure(api_key="AIzaSyCTaa04YX2Mo7iEPLad9-4NJKqAdg6Wqsg")
@@ -115,6 +118,7 @@ def set_relevance(state: State) -> State:
         Classify the intent into ONLY one of these:
         - "prev_summary_query"
         - "general_question"
+        - "hr_recommendation"
         Respond with just the category name.
         """
     else:  # For employee
@@ -133,7 +137,7 @@ def set_relevance(state: State) -> State:
     try:
         response = model.generate_content(prompt)
         intent = response.text.strip().lower()
-        allowed_intents = ["self_appraisal_input", "prev_summary_query", "general_question"]
+        allowed_intents = ["self_appraisal_input", "prev_summary_query", "hr_recommendation", "general_question"]
         if intent not in allowed_intents:
             intent = "general_question"
         state["intent"] = intent
@@ -329,6 +333,75 @@ def isComplete(state: State) -> str:
 def check_role(state: State) -> str:
     return state["role"]
 
+def hr_recommendation(state: State) -> State:
+    """
+    Generates general HR recommendations based on all employees' past appraisals
+    Follows same pattern as prev_summary_query and other working functions
+    """
+    # Initialize variables from state
+    user_msg = state.get("messages", "")
+    role = state.get("role", "").strip().lower()
+
+    
+    # Step 1: Verify this is an HR request
+    if role != "hr":
+        state["followup"] = "Only HR personnel can request general recommendations."
+        state["state"] = "complete"
+        return state
+
+    # Step 2: Fetch all appraisal data
+    api_response = fetch_data_from_server()  # No ID fetches all data
+    
+    if not api_response.get("success"):
+        error_message = api_response.get("error", "An unknown error occurred")
+        state["followup"] = f"Sorry, I couldn't fetch appraisal data. Error: '{error_message}'"
+        state["state"] = "complete"
+        return state
+
+    # Step 3: Process all employee data
+    all_appraisals = api_response["data"]
+    
+    if not all_appraisals or len(all_appraisals) == 0:
+        state["followup"] = "No appraisal data found for any employees."
+        state["state"] = "complete"
+        return state
+
+    # Step 4: Generate recommendations using existing function
+    try:
+        recommendations = generate_hr_recommendations(all_appraisals)
+        state["followup"] = f"Here are the general HR recommendations based on all employee appraisals:\n\n{recommendations}"
+    except Exception as e:
+        print(f"Error generating HR recommendations: {e}")
+        state["followup"] = "I encountered an error while generating recommendations. Please try again later."
+    
+    state["state"] = "complete"
+    return state
+
+
+def fetch_data_from_server(employee_id: str = None) -> dict:
+    """
+    Synchronous data fetcher (works for both single employee and all employees)
+    """
+    try:
+        BACKEND_URL_APPRAISALS = "http://localhost:3000/appraisal"
+        url = f"{BACKEND_URL_APPRAISALS}"
+        if employee_id:
+            url = f"{BACKEND_URL_APPRAISALS}/{employee_id}"
+            
+        with httpx.Client() as client:
+            response = client.get(url)
+            
+            return {
+                "success": response.status_code == 200,
+                "data": response.json() if response.status_code == 200 else None,
+                "error": response.text if response.status_code != 200 else None
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 
 graph.add_node("set_role", set_role)
 graph.add_node("set_relevance", set_relevance)
@@ -337,12 +410,14 @@ graph.add_node("ext_up", ext_up)
 graph.add_node("user_followup", user_followup)
 graph.add_node("prev_summary_query", prev_summary_query)
 graph.add_node("general_question", general_question)
+graph.add_node("hr_recommendation", hr_recommendation)
+
 
 
 
 graph.add_edge(START, "set_role")
 graph.add_conditional_edges("set_role", check_role, {"hr": "set_relevance", "lead": "set_relevance", "employee": "set_relevance"})
-graph.add_conditional_edges("set_relevance", check_relevance, {"self_appraisal_input": "ext_up", "prev_summary_query": "prev_summary_query", "general_question": "general_question"})
+graph.add_conditional_edges("set_relevance", check_relevance, {"self_appraisal_input": "ext_up", "prev_summary_query": "prev_summary_query", "hr_recommendation": "hr_recommendation", "general_question": "general_question"})
 graph.add_conditional_edges("ext_up", isComplete, {"no": "user_followup", "yes": END})
 graph.add_edge("user_followup", END)
 graph.add_edge("general_question", END)
