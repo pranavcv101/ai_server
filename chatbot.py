@@ -2,7 +2,7 @@
 from langgraph.graph import StateGraph, START, END
 from node_functions import start_node,check_role,employee_query,extract_update,check_appraisals,user_followup,isComplete
 from node_functions import completed_appraisal,prev_summary_query,general_question,check_relevance
-from node_functions import hr_lead_query,self_appraisal_summary,check_hr_lead_relevance,score_predicter
+from node_functions import hr_lead_query,self_appraisal_summary,score_predicter
 from models import State
 
 graph = StateGraph(State)
@@ -67,6 +67,6 @@ graph.add_edge("prev_summary_query", END)
 graph.add_edge("general_question", END)
 graph.add_edge("hr_lead_general_question", END)
 graph.add_edge("score_predicter", END)
-graph.add_edge("check_appraisal",END)
+graph.add_edge("check_appraisals",END)
 graph.add_edge("self_appraisal_summary",END)
 compiled = graph.compile()
